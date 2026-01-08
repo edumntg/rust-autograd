@@ -231,4 +231,14 @@ mod tests {
         assert_eq!(v_result.data(), 8.0);
         assert_eq!(v_result.grad(), 0.0);
     }
+
+    #[test]
+    fn test_value_div() {
+        let v1 = Value::new(6.0);
+        let v2 = Value::new(2.0);
+
+        let v_result = v1 / v2;
+        assert_eq!(v_result.data(), 3.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
 }
