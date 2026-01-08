@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::ops::Add;
 use std::ops::Sub;
+use std::ops::Mul;
 use std::fmt;
 
 struct ValueData {
@@ -105,6 +106,37 @@ impl Sub for Value {
     }
 }
 
+impl Mul for Value {
+    type Output = Value;
+
+    fn mul(self, rhs: Value) -> Value {
+        let out_data = self.data() * rhs.data();
+
+        // Node
+        let out = Value(Rc::new(RefCell::new(ValueData {
+            data: out_data,
+            grad: 0.0,
+            _backward: None,
+            _prev: vec![self.clone(), rhs.clone()],
+            _op: "*".to_string(),
+        })));
+
+        // Backward pass
+        let self_clone = self.clone();
+        let rhs_clone = rhs.clone();
+        let out_clone = out.clone();
+
+        out.0.borrow_mut()._backward = Some(Box::new(move || {
+            let out_grad = out_clone.grad();
+
+            self_clone.0.borrow_mut().grad += rhs_clone.0.borrow().data * out_grad;
+            rhs.0.borrow_mut().grad += self_clone.0.borrow().data * rhs_clone.0.borrow().grad;
+        }));
+
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +177,16 @@ mod tests {
 
         let v_result = v1.sub(v2); // -3-(-5) = -3+5=2
         assert_eq!(v_result.data(), 2.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_mul() {
+        let v1 = Value::new(2.0);
+        let v2 = Value::new(3.0);
+
+        let v_result = v1.mul(v2);
+        assert_eq!(v_result.data(), 6.0);
         assert_eq!(v_result.grad(), 0.0);
     }
 }
