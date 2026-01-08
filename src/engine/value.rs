@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::ops::Add;
 use std::ops::Sub;
 use std::ops::Mul;
+use std::ops::Div;
 use std::fmt;
 
 struct ValueData {
@@ -33,6 +34,29 @@ impl Value {
 
     pub fn grad(&self) -> f64 {
         self.0.borrow().grad
+    }
+
+    pub fn pow(&self, exponent: f64) -> Value {
+        let out_data = self.data().powf(exponent);
+
+        let out = Value(Rc::new(RefCell::new(ValueData {
+            data: out_data,
+            grad: 0.0,
+            _backward: None,
+            _prev: vec![],
+            _op: "**".to_string()
+        })));
+
+        let self_clone = self.clone();
+        let out_clone = out.clone();
+
+        out.0.borrow_mut()._backward = Some(Box::new(move || {
+            let out_grad = out_clone.grad();
+
+            self_clone.0.borrow_mut().grad += exponent * self_clone.data().powf(exponent-1.0) * out_grad;
+        }));
+
+        out
     }
 }
 
@@ -129,11 +153,19 @@ impl Mul for Value {
         out.0.borrow_mut()._backward = Some(Box::new(move || {
             let out_grad = out_clone.grad();
 
-            self_clone.0.borrow_mut().grad += rhs_clone.0.borrow().data * out_grad;
-            rhs.0.borrow_mut().grad += self_clone.0.borrow().data * rhs_clone.0.borrow().grad;
+            self_clone.0.borrow_mut().grad += rhs_clone.data() * out_grad;
+            rhs.0.borrow_mut().grad += self_clone.data() * rhs_clone.grad();
         }));
 
         out
+    }
+}
+
+impl Div for Value {
+    type Output = Value;
+
+    fn div(self, rhs: Value) -> Value {
+        self * rhs.pow(-1.0)
     }
 }
 
@@ -187,6 +219,16 @@ mod tests {
 
         let v_result = v1.mul(v2);
         assert_eq!(v_result.data(), 6.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_pow() {
+        let v = Value::new(2.0);
+        let exponent: f64 = 3.0;
+
+        let v_result = v.pow(exponent);
+        assert_eq!(v_result.data(), 8.0);
         assert_eq!(v_result.grad(), 0.0);
     }
 }
