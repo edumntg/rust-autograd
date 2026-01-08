@@ -99,6 +99,14 @@ impl Add for Value {
     }
 }
 
+impl Add<f64> for Value {
+    type Output = Value;
+
+    fn add(self, rhs: f64) -> Value {
+        self + Value::new(rhs)
+    }
+}
+
 impl Sub for Value {
     type Output = Value;
 
@@ -134,6 +142,13 @@ impl Sub for Value {
     }
 }
 
+impl Sub<f64> for Value {
+    type Output = Value;
+    fn sub(self, rhs: f64) -> Value {
+        self - Value::new(rhs)
+    }
+}
+
 impl Mul for Value {
     type Output = Value;
 
@@ -165,11 +180,25 @@ impl Mul for Value {
     }
 }
 
+impl Mul<f64> for Value {
+    type Output = Value;
+    fn mul(self, rhs: f64) -> Value {
+        self * Value::new(rhs)
+    }
+}
+
 impl Div for Value {
     type Output = Value;
 
     fn div(self, rhs: Value) -> Value {
         self * rhs.pow(-1.0)
+    }
+}
+
+impl Div<f64> for Value {
+    type Output = Value;
+    fn div(self, rhs: f64) -> Value {
+        self / Value::new(rhs)
     }
 }
 
@@ -201,8 +230,18 @@ mod tests {
         let v1 = Value::new(1.0);
         let v2 = Value::new(2.0);
 
-        let v_result = v1.add(v2);
+        let v_result = v1 + v2;
         assert_eq!(v_result.data(), 3.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_add_float() {
+        let v1 = Value::new(2.0);
+        let v2 = 5.0;
+
+        let v_result = v1 + v2;
+        assert_eq!(v_result.data(), 7.0);
         assert_eq!(v_result.grad(), 0.0);
     }
 
@@ -211,7 +250,17 @@ mod tests {
         let v1 = Value::new(-3.0);
         let v2 = Value::new(-5.0);
 
-        let v_result = v1.sub(v2); // -3-(-5) = -3+5=2
+        let v_result = v1 - v2; // -3-(-5) = -3+5=2
+        assert_eq!(v_result.data(), 2.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_sub_float() {
+        let v1 = Value::new(-3.0);
+        let v2 = -5.0;
+
+        let v_result = v1 - v2; // -3-(-5) = -3+5=2
         assert_eq!(v_result.data(), 2.0);
         assert_eq!(v_result.grad(), 0.0);
     }
@@ -221,7 +270,17 @@ mod tests {
         let v1 = Value::new(2.0);
         let v2 = Value::new(3.0);
 
-        let v_result = v1.mul(v2);
+        let v_result = v1 * v2;
+        assert_eq!(v_result.data(), 6.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_mul_float() {
+        let v1 = Value::new(2.0);
+        let v2 = 3.0;
+
+        let v_result = v1 * v2;
         assert_eq!(v_result.data(), 6.0);
         assert_eq!(v_result.grad(), 0.0);
     }
@@ -240,6 +299,16 @@ mod tests {
     fn test_value_div() {
         let v1 = Value::new(6.0);
         let v2 = Value::new(2.0);
+
+        let v_result = v1 / v2;
+        assert_eq!(v_result.data(), 3.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_div_float() {
+        let v1 = Value::new(6.0);
+        let v2 = 2.0;
 
         let v_result = v1 / v2;
         assert_eq!(v_result.data(), 3.0);
