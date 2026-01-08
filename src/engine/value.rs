@@ -58,6 +58,10 @@ impl Value {
 
         out
     }
+
+    pub fn inv(&self) -> Value {
+        self.pow(-1.0)
+    }
 }
 
 impl Add for Value {
@@ -239,6 +243,15 @@ mod tests {
 
         let v_result = v1 / v2;
         assert_eq!(v_result.data(), 3.0);
+        assert_eq!(v_result.grad(), 0.0);
+    }
+
+    #[test]
+    fn test_value_inv() {
+        let v = Value::new(2.0);
+
+        let v_result = v.inv();
+        assert_eq!(v_result.data(), 0.5);
         assert_eq!(v_result.grad(), 0.0);
     }
 }
