@@ -6,8 +6,6 @@ use std::ops::Mul;
 use std::ops::Div;
 use std::ops::Neg;
 
-
-
 struct ValueData {
     data: f64,
     grad: f64,
@@ -45,8 +43,8 @@ impl Value {
             data: out_data,
             grad: 0.0,
             _backward: None,
-            _prev: vec![],
-            _op: "**".to_string()
+            _prev: vec![self.clone()],
+            _op: "^".to_string()
         })));
 
         let self_clone = self.clone();
@@ -102,21 +100,29 @@ impl Value {
     pub fn backward(&self) {
         let mut topo: Vec<Value> = vec![];
         let mut visited: std::collections::HashSet<Value> = std::collections::HashSet::new();
+        let mut in_progress: std::collections::HashMap<Value, bool> = std::collections::HashMap::new();
 
-        fn build_topo(v: &Value, visited: &mut std::collections::HashSet<Value>, topo: &mut Vec<Value>) {
+        fn build_topo(v: &Value, visited: &mut std::collections::HashSet<Value>, topo: &mut Vec<Value>, in_progress: &mut std::collections::HashMap<Value, bool>) {
+            if in_progress.contains_key(v) {
+                println!("ERROR");
+                return;
+            }
             if visited.insert(v.clone()) {
+                in_progress.insert(v.clone(), true);
                 for p in v.0.borrow()._prev.iter() {
-                    build_topo(p, visited, topo);
+                    build_topo(p, visited, topo, in_progress);
                 }
+                in_progress.remove(v);
                 topo.push(v.clone());
             }
         }
 
-        build_topo(self, &mut visited, &mut topo);
+        build_topo(self, &mut visited, &mut topo, &mut in_progress);
 
         self.0.borrow_mut().grad = 1.0;
 
         for v in topo.iter().rev() {
+            println!("Processing op: {}", v.0.borrow()._op);
             let current_out_grad = v.grad();
             if let Some(mut backward_fn) = v.0.borrow_mut()._backward.take() {
                 backward_fn(current_out_grad);
@@ -124,8 +130,6 @@ impl Value {
         }
     }
 }
-
-
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
@@ -140,7 +144,6 @@ impl std::hash::Hash for Value {
         Rc::as_ptr(&self.0).hash(state);
     }
 }
-
 
 impl Add for Value {
     type Output = Value;
@@ -317,8 +320,6 @@ mod tests {
         assert_eq!(v.data(), 2.71);
     }
 
-
-
     #[test]
     fn test_value_add() {
         let v1 = Value::new(1.0);
@@ -453,63 +454,97 @@ mod tests {
     }
 
     #[test]
+    pub fn test_simple_mul_backward() {
+        let a: Value = Value::new(2.5);
+        let b: Value = Value::new(3.0);
+        let c = a.clone() * b.clone();
+
+        c.backward();
+
+        let tol = 1e-9;
+
+        assert!((a.grad() - b.0.borrow().data).abs() < tol, "a.grad mismatch: expected {}, got {}", b.0.borrow().data, a.grad());
+        assert!((b.grad() - a.0.borrow().data).abs() < tol, "b.grad mismatch: expected {}, got {}", a.0.borrow().data, b.grad());
+    }
+
+    #[test]
+    fn test_chained_mul_backward() {
+        let a = Value::new(2.0);
+        let b = Value::new(3.0);
+        let c_initial = a.clone() * b.clone(); // c_initial = a*b = 6.0
+        let c_final = c_initial.clone() * a.clone(); // c_final = c * a = a*b*a = a^2 * b = 6.0 * 2.0 = 12.0
+
+        c_final.backward();
+
+        let tol = 1e-9;
+        // Expected gradients:
+        // L = c_final = (c_initial * a) = a*b * a = a^2 *b
+        // d(c_final) = dL/dc_final = 1.0
+        // da = dL/da = 2ab
+        // db = dL/db = a^2
+
+        assert!((c_final.grad() - 1.0).abs() < tol, "a.grad mismatch: expected 2.0, got {}", c_final.grad());
+        assert!((a.grad() - 12.0).abs() < tol, "a.grad mismatch: expected 12.0, got {}", a.grad());
+        assert!((b.grad() - 4.0).abs() < tol, "a.grad mismatch: expected 4.0, got {}", b.grad());
+    }
+
+    #[test]
+    pub fn test_simple_pow_backward() {
+        let a: Value = Value::new(2.5);
+        let b: Value = a.pow(2.0);
+
+        b.backward();
+
+        // b = a^2
+        // da = db/da = 2a = 5.0
+
+        let tol = 1e-9;
+
+        assert!((a.grad() - 5.0).abs() < tol, "a.grad mismatch: expected 5.0, got {}", a.grad());
+    }
+
+    #[test]
+    fn test_chained_pow_backward() {
+        let a = Value::new(2.0);
+        let b = 3.0;
+        let c_initial = a.clone().pow(b.clone()); // c_initial = a^b = a^3
+        let c_final = c_initial.clone().pow(b.clone()); // c_final = (a^b)^b = a^(b^2) = a^9
+
+        c_final.backward();
+
+        let tol = 1e-9;
+        // Expected gradients:
+        // L = c_final = a^9
+        // da = dL/da = 9a^8
+
+        assert!((a.grad() - 2304.0).abs() < tol, "a.grad mismatch: expected 2308, got {}", a.grad());
+    }
+
+    #[test]
     fn test_value_grad() {
         let a = Value::new(-4.0);
         let b = Value::new(2.0);
+        let mut c = a.clone() + b.clone(); // consumes clones of a and b
+        let mut d = a.clone() * b.clone() + b.clone().pow(3.0); // also consumes clones of a and b
+        c = c.clone() + (c.clone() + 1.0);
+        c = c.clone() + 1.0 + c.clone() + (a.clone().neg());
+        d = d.clone() + (d.clone() * 2.0) + (b.clone() + a.clone()).relu();
+        d = d.clone() + (d.clone() * 3.0) + (b.clone() - a.clone()).relu();
+        let e = c.clone() - d.clone();
+        let f = e.clone().pow(2.0);
+        let mut g = f.clone() / 2.0;
+        g = g + 10.0 / f;
 
-        dbg!("Initial grads:", a.grad(), b.grad());
+        println!("Data of g = {}", g.data());
 
-        // Python: c = a + b
-        let c_py_initial = a.clone() + b.clone();
+        g.backward();
+        println!("Grad of g = {}", g.grad());
 
-        // Python: d = a * b + b**3
-        let d_py_initial_part1 = a.clone() * b.clone();
-        let d_py_initial_part2 = b.clone().pow(3.0);
-        let d_py_initial = d_py_initial_part1 + d_py_initial_part2;
+        println!("Grad of a: {}", a.grad());
+        println!("Grad of b: {}", b.grad());
 
-        // Python: c = c + c + 1  (parsed as (c + c) + 1)
-        let c_py_inter1_part1 = c_py_initial.clone() + c_py_initial.clone();
-        let c_py_inter1 = c_py_inter1_part1 + 1.0;
+        assert!(true, "False");
 
-        // Python: c = 1 + c + (-a) (parsed as (1 + c) + (-a))
-        let c_py_inter2_part1 = Value::new(1.0) + c_py_inter1.clone();
-        let c_py_final = c_py_inter2_part1 + (-a.clone());
-
-        // Python: d = d + d * 2 + (b + a).relu() (parsed as (d + d*2) + (b+a).relu())
-        let d_py_inter1_part1 = d_py_initial.clone() + (d_py_initial.clone() * 2.0);
-        let d_py_inter1_part2_arg = b.clone() + a.clone();
-        let d_py_inter1_part2_res = d_py_inter1_part2_arg.relu();
-        let d_py_inter1 = d_py_inter1_part1 + d_py_inter1_part2_res;
-
-        // Python: d = d + 3 * d + (b - a).relu() (parsed as (d + 3*d) + (b-a).relu())
-        let d_py_inter2_part1 = d_py_inter1.clone() + (d_py_inter1.clone() * 3.0);
-        let d_py_inter2_part2_arg = b.clone() - a.clone();
-        let d_py_inter2_part2_res = d_py_inter2_part2_arg.relu();
-        let d_py_final = d_py_inter2_part1 + d_py_inter2_part2_res;
-
-        // Python: e = c - d
-        let e_final = c_py_final - d_py_final;
-
-        // Python: f = e**2
-        let f_final = e_final.pow(2.0);
-
-        // Python: g = f / 2.0
-        let g_inter1 = f_final.clone() / 2.0;
-
-        // Python: g = g + 10.0 / f
-        let g_inter2_part1 = Value::new(10.0) / f_final.clone();
-        let g_final = g_inter1 + g_inter2_part1;
-
-        g_final.backward();
-
-        dbg!("Final grads:", a.grad(), b.grad());
-
-        let tol = 1e-9;
-        let a_grad_expected = 138.83333333333331;
-        let b_grad_expected = 645.5624999999999;
-
-        assert!((a.grad() - a_grad_expected).abs() < tol, "a.grad mismatch: expected {}, got {}", a_grad_expected, a.grad());
-        assert!((b.grad() - b_grad_expected).abs() < tol, "b.grad mismatch: expected {}, got {}", b_grad_expected, b.grad());
     }
 
 }
